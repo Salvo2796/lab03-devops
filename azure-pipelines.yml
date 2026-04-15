@@ -63,7 +63,7 @@ stages:
           BACKEND_IMAGE="$(acrName).azurecr.io/backend:$(imageTag)"
 
           echo "Build backend image: ${BACKEND_IMAGE}"
-          docker build -t ${BACKEND_IMAGE} ./backend
+          docker build --platform linux/amd64 -t ${BACKEND_IMAGE} ./backend
 
           echo "Push backend image: ${BACKEND_IMAGE}"
           docker push ${BACKEND_IMAGE}
@@ -93,7 +93,7 @@ stages:
           FRONTEND_IMAGE="$(acrName).azurecr.io/frontend:$(imageTag)"
 
           echo "Build frontend image: ${FRONTEND_IMAGE}"
-          docker build -t ${FRONTEND_IMAGE} ./frontend
+          docker build --platform linux/amd64 -t ${FRONTEND_IMAGE} ./frontend
 
           echo "Push frontend image: ${FRONTEND_IMAGE}"
           docker push ${FRONTEND_IMAGE}
