@@ -1,0 +1,104 @@
+trigger:
+  - main
+
+pr: none
+
+pool:
+  name: Default
+
+variables:
+  azureServiceConnection: 'sc-obs-azure-rg'
+  acrName: 'obsacr11696'
+  imageTag: '$(Build.BuildId)'
+
+stages:
+- stage: ValidateRepository
+  displayName: Validate monorepo structure
+  jobs:
+  - job: ValidateFiles
+    displayName: Check required files and Python syntax
+    steps:
+    - checkout: self
+
+    - bash: |
+        set -e
+
+        echo "Verifica struttura repository"
+        test -f frontend/app.py
+        test -f frontend/requirements.txt
+        test -f frontend/Dockerfile
+        test -f backend/app.py
+        test -f backend/requirements.txt
+        test -f backend/Dockerfile
+
+        echo "Verifica sintassi Python"
+        python3 -m py_compile frontend/app.py
+        python3 -m py_compile backend/app.py
+
+        echo "Verifica completata"
+      displayName: Validate files and Python syntax
+
+- stage: PublishImages
+  displayName: Build and push FE/BE images
+  dependsOn: ValidateRepository
+  condition: succeeded()
+  jobs:
+  - job: BuildBackend
+    displayName: Build and push backend image
+    steps:
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: Build and push backend image to ACR
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          set -e
+
+          az account show
+          az acr login --name $(acrName)
+
+          BACKEND_IMAGE="$(acrName).azurecr.io/backend:$(imageTag)"
+
+          echo "Build backend image: ${BACKEND_IMAGE}"
+          docker build -t ${BACKEND_IMAGE} ./backend
+
+          echo "Push backend image: ${BACKEND_IMAGE}"
+          docker push ${BACKEND_IMAGE}
+
+          az acr repository show-tags \
+            --name $(acrName) \
+            --repository backend \
+            -o table
+
+  - job: BuildFrontend
+    displayName: Build and push frontend image
+    steps:
+    - checkout: self
+
+    - task: AzureCLI@2
+      displayName: Build and push frontend image to ACR
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          set -e
+
+          az account show
+          az acr login --name $(acrName)
+
+          FRONTEND_IMAGE="$(acrName).azurecr.io/frontend:$(imageTag)"
+
+          echo "Build frontend image: ${FRONTEND_IMAGE}"
+          docker build -t ${FRONTEND_IMAGE} ./frontend
+
+          echo "Push frontend image: ${FRONTEND_IMAGE}"
+          docker push ${FRONTEND_IMAGE}
+
+          az acr repository show-tags \
+            --name $(acrName) \
+            --repository frontend \
+            -o table
