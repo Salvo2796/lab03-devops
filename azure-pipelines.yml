@@ -11,7 +11,7 @@ variables:
   resourceGroupName: 'rg-observability-dev'
   location: 'westeurope'
   acrName: 'obsacr11696'
-  appInsightsName: 'appi-obs-dev'
+  appInsightsName: 'my-app-insights'
   containerAppsEnvironment: 'env-app'
   backendAppName: 'be-obs-app'
   frontendAppName: 'fe-obs-app'
