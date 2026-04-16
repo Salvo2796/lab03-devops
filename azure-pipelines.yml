@@ -59,8 +59,14 @@ stages:
           az account show
           az acr login --name $(acrName)
           BACKEND_IMAGE="$(acrName).azurecr.io/$(backendImageName):$(imageTag)"
-          docker build -t ${BACKEND_IMAGE} ./backend
-          docker push ${BACKEND_IMAGE}
+
+          echo "Build backend image: ${BACKEND_IMAGE}"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            -t ${BACKEND_IMAGE} \
+            --push \
+            ./backend
 
   - job: BuildFrontend
     displayName: Build and push frontend image
@@ -77,8 +83,14 @@ stages:
           az account show
           az acr login --name $(acrName)
           FRONTEND_IMAGE="$(acrName).azurecr.io/$(frontendImageName):$(imageTag)"
-          docker build -t ${FRONTEND_IMAGE} ./frontend
-          docker push ${FRONTEND_IMAGE}
+          
+          echo "Build frontend image: ${FRONTEND_IMAGE}"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            -t ${FRONTEND_IMAGE} \
+            --push \
+            ./frontend
 
 - stage: DeployBackend
   displayName: Deploy backend to ACA with App Insights
