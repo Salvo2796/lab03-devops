@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry.sdk.resources import Resource
 from flask import Flask, g, jsonify, request
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+
+FlaskInstrumentor().instrument_app(app)
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "backend")
 APPINSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
