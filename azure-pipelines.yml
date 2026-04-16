@@ -142,8 +142,7 @@ stages:
               --min-replicas 1 \
               --max-replicas 1 \
               --registry-server $(acrName).azurecr.io \
-              --registry-username $(ACR_USER) \
-              --registry-password $(ACR_PASS)
+              --az acr login --name $(acrName)
           fi
 
           az containerapp show \
@@ -205,8 +204,7 @@ stages:
               --min-replicas 1 \
               --max-replicas 1 \
               --registry-server $(acrName).azurecr.io \
-              --registry-username $(ACR_USER) \
-              --registry-password $(ACR_PASS) \
+              --az acr login --name $(acrName)
               --env-vars BACKEND_URL=${BACKEND_URL}
           fi
 
