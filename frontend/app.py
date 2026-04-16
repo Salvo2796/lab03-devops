@@ -5,17 +5,27 @@ import uuid
 from datetime import datetime, timezone
 
 import requests
-from azure.monitor.opentelemetry import configure_azure_monitor
-from opentelemetry.sdk.resources import Resource
 from flask import Flask, g, jsonify, request
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
-FlaskInstrumentor().instrument_app(app)
 
+from azure.monitor.opentelemetry import configure_azure_monitor
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.sdk.resources import Resource
+
+# =========================
+# CONFIG
+# =========================
 SERVICE_NAME = os.getenv("SERVICE_NAME", "frontend")
 BACKEND_URL = os.getenv("BACKEND_URL", "")
 APPINSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
 
+app = Flask(__name__)
+
+# =========================
+# OBSERVABILITY SETUP
+# =========================
 resource = Resource.create({"service.name": SERVICE_NAME})
+
+print("APPINSIGHTS ENABLED:", bool(APPINSIGHTS_CONNECTION_STRING), flush=True)
 
 if APPINSIGHTS_CONNECTION_STRING:
     configure_azure_monitor(
@@ -23,9 +33,14 @@ if APPINSIGHTS_CONNECTION_STRING:
         resource=resource,
     )
 
-app = Flask(__name__)
+try:
+    FlaskInstrumentor().instrument_app(app)
+except Exception as e:
+    print("Flask instrumentation error:", e, flush=True)
 
-
+# =========================
+# UTILS
+# =========================
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -49,7 +64,9 @@ def write_log(status_code: int, message: str = "request_completed") -> None:
 
     print(json.dumps(record), flush=True)
 
-
+# =========================
+# REQUEST LIFECYCLE
+# =========================
 @app.before_request
 def before_request() -> None:
     g.start_time = time.perf_counter()
@@ -62,7 +79,9 @@ def after_request(response):
     response.headers["X-Request-Id"] = g.request_id
     return response
 
-
+# =========================
+# ROUTES
+# =========================
 @app.get("/health")
 def health():
     return jsonify({"status": "ok", "service": SERVICE_NAME}), 200
@@ -71,10 +90,15 @@ def health():
 @app.get("/demo")
 def demo():
     if not BACKEND_URL:
-        return jsonify({"error": "backend_url_not_configured", "status": 500}), 500
+        return jsonify({"error": "backend_url_not_configured"}), 500
 
     headers = {"X-Request-Id": g.request_id}
-    response = requests.get(f"{BACKEND_URL}/work", headers=headers, timeout=5)
+
+    response = requests.get(
+        f"{BACKEND_URL}/work",
+        headers=headers,
+        timeout=5
+    )
 
     return (
         jsonify(
@@ -91,10 +115,15 @@ def demo():
 @app.get("/demo-error")
 def demo_error():
     if not BACKEND_URL:
-        return jsonify({"error": "backend_url_not_configured", "status": 500}), 500
+        return jsonify({"error": "backend_url_not_configured"}), 500
 
     headers = {"X-Request-Id": g.request_id}
-    response = requests.get(f"{BACKEND_URL}/work-error", headers=headers, timeout=5)
+
+    response = requests.get(
+        f"{BACKEND_URL}/work-error",
+        headers=headers,
+        timeout=5
+    )
 
     return (
         jsonify(
@@ -108,6 +137,9 @@ def demo_error():
     )
 
 
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     app.run(host="0.0.0.0", port=port)
