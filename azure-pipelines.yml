@@ -11,6 +11,7 @@ variables:
   resourceGroupName: 'rg-observability-dev'
   location: 'westeurope'
   acrName: 'obsacr11696'
+  appInsightsName: 'appi-obs-dev'
   containerAppsEnvironment: 'env-app'
   backendAppName: 'be-obs-app'
   frontendAppName: 'fe-obs-app'
@@ -26,17 +27,14 @@ stages:
     displayName: Check required files and Python syntax
     steps:
     - checkout: self
-
     - bash: |
         set -e
-
         test -f frontend/app.py
         test -f frontend/requirements.txt
         test -f frontend/Dockerfile
         test -f backend/app.py
         test -f backend/requirements.txt
         test -f backend/Dockerfile
-
         python3 -m py_compile frontend/app.py
         python3 -m py_compile backend/app.py
       displayName: Validate files and Python syntax
@@ -50,7 +48,6 @@ stages:
     displayName: Build and push backend image
     steps:
     - checkout: self
-
     - task: AzureCLI@2
       displayName: Build and push backend image to ACR
       inputs:
@@ -61,22 +58,14 @@ stages:
           set -e
           az account show
           az acr login --name $(acrName)
-
           BACKEND_IMAGE="$(acrName).azurecr.io/$(backendImageName):$(imageTag)"
-
-          echo "Build backend image: ${BACKEND_IMAGE}"
-          docker buildx build \
-            --platform linux/amd64 \
-            --provenance=false \
-            -t ${BACKEND_IMAGE} \
-            --push \
-            ./backend
+          docker build -t ${BACKEND_IMAGE} ./backend
+          docker push ${BACKEND_IMAGE}
 
   - job: BuildFrontend
     displayName: Build and push frontend image
     steps:
     - checkout: self
-
     - task: AzureCLI@2
       displayName: Build and push frontend image to ACR
       inputs:
@@ -87,24 +76,17 @@ stages:
           set -e
           az account show
           az acr login --name $(acrName)
-
           FRONTEND_IMAGE="$(acrName).azurecr.io/$(frontendImageName):$(imageTag)"
-
-          echo "Build frontend image: ${FRONTEND_IMAGE}"
-          docker buildx build \
-            --platform linux/amd64 \
-            --provenance=false \
-            -t ${FRONTEND_IMAGE} \
-            --push \
-            ./frontend
+          docker build -t ${FRONTEND_IMAGE} ./frontend
+          docker push ${FRONTEND_IMAGE}
 
 - stage: DeployBackend
-  displayName: Deploy backend to ACA
+  displayName: Deploy backend to ACA with App Insights
   dependsOn: PublishImages
   condition: succeeded()
   jobs:
   - job: DeployBackendJob
-    displayName: Deploy or update backend container app
+    displayName: Deploy backend container app
     steps:
     - task: AzureCLI@2
       displayName: Deploy backend app
@@ -116,22 +98,28 @@ stages:
           set -e
 
           az extension add --name containerapp --upgrade || az extension update --name containerapp
+          az extension add -n application-insights || true
+
           az account show
           az acr login --name $(acrName)
 
           BACKEND_IMAGE="$(acrName).azurecr.io/$(backendImageName):$(imageTag)"
+          APPINSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
+            --app $(appInsightsName) \
+            --resource-group $(resourceGroupName) \
+            --query connectionString \
+            -o tsv | tr -d '\r\n')
 
           ACR_USER=$(az acr credential show --name $(acrName) --query username -o tsv | tr -d '\r\n')
           ACR_PASS=$(az acr credential show --name $(acrName) --query "passwords[0].value" -o tsv | tr -d '\r\n')
 
           if az containerapp show --name $(backendAppName) --resource-group $(resourceGroupName) >/dev/null 2>&1; then
-            echo "Backend app esiste già: aggiorno immagine"
             az containerapp update \
               --name $(backendAppName) \
               --resource-group $(resourceGroupName) \
-              --image ${BACKEND_IMAGE}
+              --image ${BACKEND_IMAGE} \
+              --set-env-vars APPLICATIONINSIGHTS_CONNECTION_STRING="${APPINSIGHTS_CONNECTION_STRING}" SERVICE_NAME="backend"
           else
-            echo "Backend app non esiste: creo la container app"
             az containerapp create \
               --name $(backendAppName) \
               --resource-group $(resourceGroupName) \
@@ -142,23 +130,18 @@ stages:
               --min-replicas 1 \
               --max-replicas 1 \
               --registry-server $(acrName).azurecr.io \
-              --registry-username $ACR_USER \
-              --registry-password $ACR_PASS
+              --registry-username ${ACR_USER} \
+              --registry-password ${ACR_PASS} \
+              --env-vars APPLICATIONINSIGHTS_CONNECTION_STRING="${APPINSIGHTS_CONNECTION_STRING}" SERVICE_NAME="backend"
           fi
 
-          az containerapp show \
-            --name $(backendAppName) \
-            --resource-group $(resourceGroupName) \
-            --query properties.configuration.ingress.fqdn \
-            -o tsv
-
 - stage: DeployFrontend
-  displayName: Deploy frontend to ACA
+  displayName: Deploy frontend to ACA with App Insights
   dependsOn: DeployBackend
   condition: succeeded()
   jobs:
   - job: DeployFrontendJob
-    displayName: Deploy or update frontend container app
+    displayName: Deploy frontend container app
     steps:
     - task: AzureCLI@2
       displayName: Deploy frontend app
@@ -170,10 +153,17 @@ stages:
           set -e
 
           az extension add --name containerapp --upgrade || az extension update --name containerapp
+          az extension add -n application-insights || true
+
           az account show
           az acr login --name $(acrName)
 
           FRONTEND_IMAGE="$(acrName).azurecr.io/$(frontendImageName):$(imageTag)"
+          APPINSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
+            --app $(appInsightsName) \
+            --resource-group $(resourceGroupName) \
+            --query connectionString \
+            -o tsv | tr -d '\r\n')
 
           ACR_USER=$(az acr credential show --name $(acrName) --query username -o tsv | tr -d '\r\n')
           ACR_PASS=$(az acr credential show --name $(acrName) --query "passwords[0].value" -o tsv | tr -d '\r\n')
@@ -187,14 +177,12 @@ stages:
           BACKEND_URL=$(echo "https://${BE_FQDN}" | tr -d '\r\n')
 
           if az containerapp show --name $(frontendAppName) --resource-group $(resourceGroupName) >/dev/null 2>&1; then
-            echo "Frontend app esiste già: aggiorno immagine e BACKEND_URL"
             az containerapp update \
               --name $(frontendAppName) \
               --resource-group $(resourceGroupName) \
               --image ${FRONTEND_IMAGE} \
-              --set-env-vars BACKEND_URL=${BACKEND_URL}
+              --set-env-vars APPLICATIONINSIGHTS_CONNECTION_STRING="${APPINSIGHTS_CONNECTION_STRING}" SERVICE_NAME="frontend" BACKEND_URL="${BACKEND_URL}"
           else
-            echo "Frontend app non esiste: creo la container app"
             az containerapp create \
               --name $(frontendAppName) \
               --resource-group $(resourceGroupName) \
@@ -205,16 +193,10 @@ stages:
               --min-replicas 1 \
               --max-replicas 1 \
               --registry-server $(acrName).azurecr.io \
-              --registry-username $ACR_USER \
-              --registry-password $ACR_PASS \
-              --env-vars BACKEND_URL=${BACKEND_URL}
+              --registry-username ${ACR_USER} \
+              --registry-password ${ACR_PASS} \
+              --env-vars APPLICATIONINSIGHTS_CONNECTION_STRING="${APPINSIGHTS_CONNECTION_STRING}" SERVICE_NAME="frontend" BACKEND_URL="${BACKEND_URL}"
           fi
-
-          az containerapp show \
-            --name $(frontendAppName) \
-            --resource-group $(resourceGroupName) \
-            --query properties.configuration.ingress.fqdn \
-            -o tsv
 
 - stage: VerifyDeployment
   displayName: Verify FE and BE deployment
@@ -222,7 +204,7 @@ stages:
   condition: succeeded()
   jobs:
   - job: VerifyJob
-    displayName: Run endpoint checks and show revisions
+    displayName: Generate traffic and inspect revisions
     steps:
     - task: AzureCLI@2
       displayName: Verify deployed apps
@@ -247,29 +229,18 @@ stages:
             --query properties.configuration.ingress.fqdn \
             -o tsv | tr -d '\r\n')
 
-          echo "Attendo 20 secondi per warm-up"
+          echo "Warm-up"
           sleep 20
 
-          echo "Test backend /health"
           curl --fail --silent --show-error "https://${BE_FQDN}/health"
           echo
-
-          echo "Test frontend /health"
           curl --fail --silent --show-error "https://${FE_FQDN}/health"
           echo
 
-          echo "Test frontend /demo"
-          curl --fail --silent --show-error "https://${FE_FQDN}/demo"
-          echo
+          for i in {1..10}; do
+            curl --fail --silent --show-error "https://${FE_FQDN}/demo" >/dev/null
+          done
 
-          echo "Revision list backend"
-          az containerapp revision list \
-            --name $(backendAppName) \
-            --resource-group $(resourceGroupName) \
-            -o table
-
-          echo "Revision list frontend"
-          az containerapp revision list \
-            --name $(frontendAppName) \
-            --resource-group $(resourceGroupName) \
-            -o table
+          for i in {1..5}; do
+            curl --silent --show-error "https://${FE_FQDN}/demo-error" >/dev/null || true
+          done
