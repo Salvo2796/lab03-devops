@@ -121,8 +121,8 @@ stages:
 
           BACKEND_IMAGE="$(acrName).azurecr.io/$(backendImageName):$(imageTag)"
 
-          ACR_USER=$(az acr credential show --name $(acrName) --query username -o tsv)
-          ACR_PASS=$(az acr credential show --name $(acrName) --query "passwords[0].value" -o tsv)
+          ACR_USER=$(az acr credential show --name $(acrName) --query username -o tsv | tr -d '\r\n')
+          ACR_PASS=$(az acr credential show --name $(acrName) --query "passwords[0].value" -o tsv | tr -d '\r\n')
 
           if az containerapp show --name $(backendAppName) --resource-group $(resourceGroupName) >/dev/null 2>&1; then
             echo "Backend app esiste già: aggiorno immagine"
@@ -142,8 +142,8 @@ stages:
               --min-replicas 1 \
               --max-replicas 1 \
               --registry-server $(acrName).azurecr.io \
-              --registry-username ${ACR_USER} \
-              --registry-password ${ACR_PASS}
+              --registry-username $(ACR_USER) \
+              --registry-password $(ACR_PASS)
           fi
 
           az containerapp show \
@@ -205,8 +205,8 @@ stages:
               --min-replicas 1 \
               --max-replicas 1 \
               --registry-server $(acrName).azurecr.io \
-              --registry-username ${ACR_USER} \
-              --registry-password ${ACR_PASS} \
+              --registry-username $(ACR_USER) \
+              --registry-password $(ACR_PASS) \
               --env-vars BACKEND_URL=${BACKEND_URL}
           fi
 
