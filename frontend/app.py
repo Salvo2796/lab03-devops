@@ -21,7 +21,7 @@ def demo():
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok", "service": "frontend"}), 200
+    return jsonify({"status": "Modifica Frontend", "service": "frontend"}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
