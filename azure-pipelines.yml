@@ -83,7 +83,7 @@ stages:
           az account show
           az acr login --name $(acrName)
           FRONTEND_IMAGE="$(acrName).azurecr.io/$(frontendImageName):$(imageTag)"
-          
+
           echo "Build frontend image: ${FRONTEND_IMAGE}"
           docker buildx build \
             --platform linux/amd64 \
@@ -121,6 +121,11 @@ stages:
             --resource-group $(resourceGroupName) \
             --query connectionString \
             -o tsv | tr -d '\r\n')
+
+          if [ -z "$APPINSIGHTS_CONNECTION_STRING" ]; then
+            echo "ERROR: App Insights connection string is empty"
+            exit 1
+          fi
 
           ACR_USER=$(az acr credential show --name $(acrName) --query username -o tsv | tr -d '\r\n')
           ACR_PASS=$(az acr credential show --name $(acrName) --query "passwords[0].value" -o tsv | tr -d '\r\n')
@@ -176,6 +181,11 @@ stages:
             --resource-group $(resourceGroupName) \
             --query connectionString \
             -o tsv | tr -d '\r\n')
+
+          if [ -z "$APPINSIGHTS_CONNECTION_STRING" ]; then
+            echo "ERROR: App Insights connection string is empty"
+            exit 1
+          fi
 
           ACR_USER=$(az acr credential show --name $(acrName) --query username -o tsv | tr -d '\r\n')
           ACR_PASS=$(az acr credential show --name $(acrName) --query "passwords[0].value" -o tsv | tr -d '\r\n')
